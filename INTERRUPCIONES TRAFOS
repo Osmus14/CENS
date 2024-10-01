@@ -1,0 +1,201 @@
+import tkinter as tk
+from tkinter import filedialog, ttk
+import pandas as pd
+from PIL import Image, ImageTk
+
+def cargar_archivo():
+    archivo = filedialog.askopenfilename(filetypes=[("Archivos de Excel", "*.xlsx *.xls")])
+    if archivo:
+        try:
+            xls = pd.ExcelFile(archivo)
+            hojas = xls.sheet_names
+            mostrar_seleccion_hoja_mes(archivo, hojas)
+        except Exception as e:
+            print(f"Error al leer el archivo: {e}")
+
+def mostrar_seleccion_hoja_mes(archivo, hojas):
+    ventana_seleccion = tk.Toplevel()
+    ventana_seleccion.title("Seleccionar Hoja y Mes")
+    ventana_seleccion.configure(bg="#f0f0f0")
+
+    notebook = ttk.Notebook(ventana_seleccion)
+    notebook.pack(pady=10, expand=True)
+
+    frame_hoja = ttk.Frame(notebook)
+    frame_mes = ttk.Frame(notebook)
+    notebook.add(frame_hoja, text="Seleccionar Hoja")
+    notebook.add(frame_mes, text="Seleccionar Mes")
+
+    combo_hojas = ttk.Combobox(frame_hoja, values=hojas, font=("Helvetica", 12))
+    combo_hojas.pack(pady=20)
+
+    def seleccionar_hoja():
+        hoja = combo_hojas.get()
+        df = pd.read_excel(archivo, sheet_name=hoja, usecols=["Unnamed: 10"])
+        df["Unnamed: 10"] = df["Unnamed: 10"].apply(parse_fecha)
+        df = df.dropna(subset=["Unnamed: 10"])
+        df["Mes"] = df["Unnamed: 10"].dt.to_period('M')
+        meses = df["Mes"].unique().tolist()
+        combo_meses['values'] = meses
+        notebook.select(frame_mes)
+
+    boton_seleccionar_hoja = tk.Button(frame_hoja, text="Seleccionar", command=seleccionar_hoja, bg="#4CAF50", fg="white", font=("Helvetica", 12), relief="flat")
+    boton_seleccionar_hoja.pack(pady=20)
+
+    combo_meses = ttk.Combobox(frame_mes, font=("Helvetica", 12))
+    combo_meses.pack(pady=20)
+
+    def seleccionar_mes():
+        mes = combo_meses.get()
+        hoja = combo_hojas.get()
+        ventana_seleccion.destroy()
+        procesar_hoja(archivo, hoja, mes)
+
+    boton_seleccionar_mes = tk.Button(frame_mes, text="Seleccionar", command=seleccionar_mes, bg="#4CAF50", fg="white", font=("Helvetica", 12), relief="flat")
+    boton_seleccionar_mes.pack(pady=20)
+
+def parse_fecha(fecha):
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            return pd.to_datetime(fecha, format=fmt)
+        except (ValueError, TypeError):
+            continue
+    return pd.NaT
+
+def procesar_hoja(archivo, hoja, mes):
+    try:
+        df = pd.read_excel(archivo, sheet_name=hoja, usecols=["Unnamed: 16", "Unnamed: 3", "Unnamed: 10"])
+        df["Unnamed: 10"] = df["Unnamed: 10"].apply(parse_fecha)
+        df = df.dropna(subset=["Unnamed: 10"])
+        df["Mes"] = df["Unnamed: 10"].dt.to_period('M')
+        df = df[df["Mes"] == mes]
+        
+        # Extraer texto después del símbolo & y dos letras adicionales
+        df["Unnamed: 16"] = df["Unnamed: 16"].apply(lambda x: x.split('&')[1][:2] if isinstance(x, str) and '&' in x else x)
+        
+        if "Unnamed: 16" in df.columns and "Unnamed: 3" in df.columns:
+            tipos_fusibles = df["Unnamed: 16"].tolist()
+            referencias = df["Unnamed: 3"].tolist()
+            fechas = df["Unnamed: 10"].tolist()
+            mostrar_datos(tipos_fusibles, referencias, fechas, hoja)
+   
+            print(f"Las columnas 'Unnamed: 16' o 'Unnamed: 3' no se encuentran en la hoja '{hoja}'.")
+    except Exception as e:
+        print(f"Error al leer el archivo: {e}")
+
+def mostrar_datos(tipos_fusibles, referencias, fechas, hoja):
+    ventana_datos = tk.Toplevel()
+    ventana_datos.title(f"Tipos de Fusibles y Referencias - Hoja: {hoja}")
+    ventana_datos.configure(bg="#f0f0f0")
+
+    style = ttk.Style()
+    style.configure("Treeview", font=("Helvetica", 10), rowheight=25, borderwidth=1, relief="solid")
+    style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"))
+    style.map('Treeview', background=[('selected', '#4CAF50')], foreground=[('selected', 'white')])
+
+    frame_datos = ttk.Frame(ventana_datos)
+    frame_datos.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+    tree = ttk.Treeview(frame_datos, columns=("Referencia", "Fusible Instalado"), show='headings')
+    tree.heading("Referencia", text="REFERENCIA")
+    tree.heading("Fusible Instalado", text="FUSIBLE INSTALADO")
+    tree.column("Referencia", width=100, anchor='center')
+    tree.column("Fusible Instalado", width=400, anchor='w')
+    tree.pack(expand=True, fill=tk.BOTH, side=tk.LEFT)
+
+    for fusible, referencia in zip(tipos_fusibles, referencias):
+        tree.insert("", tk.END, values=(referencia, fusible))
+
+    scrollbar = ttk.Scrollbar(frame_datos, orient="vertical", command=tree.yview)
+    tree.configure(yscroll=scrollbar.set)
+    scrollbar.pack(side='right', fill='y')
+
+    referencias_contadas = pd.Series(referencias).value_counts().head(10)
+    frame_referencias = ttk.Frame(ventana_datos)
+    frame_referencias.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+
+    tree_referencias = ttk.Treeview(frame_referencias, columns=("Referencia", "Frecuencia"), show='headings')
+    tree_referencias.heading("Referencia", text="REFERENCIA")
+    tree_referencias.heading("Frecuencia", text="FRECUENCIA")
+    tree_referencias.column("Referencia", width=300, anchor='w')
+    tree_referencias.column("Frecuencia", width=100, anchor='center')
+    tree_referencias.pack(expand=True, fill=tk.BOTH, side=tk.LEFT)
+
+    for referencia, frecuencia in referencias_contadas.items():
+        tree_referencias.insert("", tk.END, values=(referencia, frecuencia))
+
+    scrollbar_referencias = ttk.Scrollbar(frame_referencias, orient="vertical", command=tree_referencias.yview)
+    tree_referencias.configure(yscroll=scrollbar_referencias.set)
+    scrollbar_referencias.pack(side='right', fill='y')
+
+    def on_double_click(event):
+        item = tree_referencias.selection()[0]
+        referencia = tree_referencias.item(item, "values")[0]
+        mostrar_detalles_referencia(referencia, referencias, fechas, tipos_fusibles, tree, frame_referencias)
+
+    tree_referencias.bind("<Double-1>", on_double_click)
+
+    # Mostrar cantidad de datos en la columna "Unnamed: 3"
+    cantidad = len(referencias)
+    label_cantidad = tk.Label(ventana_datos, text=f"TOTAL DE INTERRUPCIONES DEL MES: {cantidad}", font=("Helvetica", 12, "bold"), bg="#f0f0f0")
+    label_cantidad.pack(pady=10)
+
+def mostrar_detalles_referencia(referencia, referencias, fechas, tipos_fusibles, tree, frame_referencias):
+    # Añadir la columna "Fecha" si no existe
+    if "Fecha" not in tree["columns"]:
+        tree["columns"] = ("Referencia", "Fusible Instalado", "Fecha")
+        tree.heading("Referencia", text="REFERENCIA")
+        tree.heading("Fusible Instalado", text="FUSIBLE INSTALADO")
+        tree.heading("Fecha", text="FECHA")
+        tree.column("Fecha", width=100, anchor='center')
+
+    for item in tree.get_children():
+        tree.delete(item)
+    
+    for ref, fecha, fusible in zip(referencias, fechas, tipos_fusibles):
+        if ref == referencia:
+            # Condición especial para tomar 4 cifras si después del & hay un 0
+            if isinstance(fusible, str) and '&' in fusible:
+                partes = fusible.split('&')
+                if len(partes) > 1 and partes[1].startswith('0'):
+                    fusible = partes[1][:4]
+                else:
+                    fusible = partes[1][:2]
+            tree.insert("", tk.END, values=(referencia, fusible, fecha.strftime("%d/%m/%Y")))
+
+    # Añadir botón de regreso si no existe
+    if not hasattr(mostrar_detalles_referencia, "boton_regreso"):
+        mostrar_detalles_referencia.boton_regreso = tk.Button(frame_referencias, text="Regresar", command=lambda: regresar(tree, referencias, tipos_fusibles), bg="#4CAF50", fg="white", font=("Helvetica", 12), relief="flat")
+        mostrar_detalles_referencia.boton_regreso.pack(pady=10)
+
+def regresar(tree, referencias, tipos_fusibles):
+    # Eliminar la columna "Fecha" si existe
+    if "Fecha" in tree["columns"]:
+        tree["columns"] = ("Referencia", "Fusible Instalado")
+        tree.heading("Referencia", text="REFERENCIA")
+        tree.heading("Fusible Instalado", text="FUSIBLE INSTALADO")
+        tree.column("Referencia", width=100, anchor='center')
+        tree.column("Fusible Instalado", width=400, anchor='w')
+
+    for item in tree.get_children():
+        tree.delete(item)
+    
+    for referencia, fusible in zip(referencias, tipos_fusibles):
+        tree.insert("", tk.END, values=(referencia, fusible))
+
+ventana = tk.Tk()
+ventana.title("Cargar Archivo de Excel")
+ventana.configure(bg="#f0f0f0")
+
+image_path = "C:/Users/felip/OneDrive/Imágenes/Captura de pantalla 2024-09-25 092656.png"
+image = Image.open(image_path)
+image = image.resize((350, 200), Image.LANCZOS)
+logo = ImageTk.PhotoImage(image)
+
+label_logo = tk.Label(ventana, image=logo, bg="#f0f0f0")
+label_logo.pack(pady=20)
+
+boton_cargar = tk.Button(ventana, text="Cargar Archivo", command=cargar_archivo, width=20, height=2, font=("Helvetica", 12), bg="#4CAF50", fg="white", relief="flat")
+boton_cargar.pack(pady=20)
+
+ventana.mainloop()
