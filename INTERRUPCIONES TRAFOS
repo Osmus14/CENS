@@ -13,6 +13,9 @@ def cargar_archivo():
         except Exception as e:
             print(f"Error al leer el archivo: {e}")
 
+    ruta_archivo_2 = "C:/Users/felip/OneDrive/Escritorio/TR AGOSTO.xlsx"
+    datos_2 = pd.read_csv(ruta_archivo_2)
+
 def mostrar_seleccion_hoja_mes(archivo, hojas):
     ventana_seleccion = tk.Toplevel()
     ventana_seleccion.title("Seleccionar Hoja y Mes")
